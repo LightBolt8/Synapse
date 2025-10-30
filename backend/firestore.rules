@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // Week-2: flip to this when you wire classMembers
+    function isMember(classId) {
+      return exists(/databases/$(db)/documents/classMembers/$(classId + "_" + request.auth.uid));
+    }
+
+    // ---- Users ----
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ---- Flat membership collection (prepare for Week-2) ----
+    match /classMembers/{memberId} {
+      allow read, write: if signedIn();
+    }
+
+    // ---- Classes ----
+    match /classes/{classId} {
+      // Week-1: any signed-in user can read/create; owner can update/delete
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if signedIn() && request.auth.uid == resource.data.createdBy;
+
+      // ---- Posts under a class ----
+      match /posts/{postId} {
+        // Week-1: any signed-in user can read/create; author controls update/delete
+        allow read: if signedIn();
+        allow create: if signedIn();
+        allow update, delete: if signedIn() && request.auth.uid == resource.data.authorId;
+
+        // Optional: per-post votes to prevent double-voting
+        match /votes/{voterUid} {
+          allow read: if signedIn();
+          allow write: if signedIn() && request.auth.uid == voterUid;
+        }
+
+        // ---- Comments under a post ----
+        match /comments/{commentId} {
+          // Anyone signed-in can create a comment
+          allow create: if signedIn();
+
+          // Read if it's public OR you're the author
+          // (Add post/class owner read if you want moderators to see private comments)
+          allow read: if signedIn() &&
+            (
+              !resource.data.isPrivate ||
+              request.auth.uid == resource.data.authorId
+            );
+
+          // Only the comment author can edit/delete
+          allow update, delete: if signedIn() &&
+            request.auth.uid == resource.data.authorId;
+        }
+      }
+    }
+  }
+}
